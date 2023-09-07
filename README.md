@@ -1,8 +1,10 @@
 # 🌩 Zeus - Simple Dependency Injection Container
 
-`Zeus` is a sleek and efficient dependency injection container for Go. Easily register "factories" (functions that create instances of types) and let zeus resolve those dependencies at runtime.
+Zeus is a sleek and efficient dependency injection container for Go. Easily register "factories" (functions that create instances of types) and let zeus resolve those dependencies at runtime.
 
 ## 🌟 Features
+
+Why using zeus?
 
 ### 🚀 Simple to Use
 
