@@ -1,5 +1,7 @@
 # 🌩 Zeus - Simple Dependency Injection Container
 
+[![codecov](https://codecov.io/gh/Otoru/zeus/graph/badge.svg?token=Yfkyp5NZsY)](https://codecov.io/gh/Otoru/zeus)
+
 Zeus is a sleek and efficient dependency injection container for Go. Easily register "factories" (functions that create instances of types) and let zeus resolve those dependencies at runtime.
 
 ## 🌟 Features
