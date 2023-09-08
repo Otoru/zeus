@@ -3,6 +3,8 @@ package zeus
 import (
 	"reflect"
 
+	"github.com/otoru/zeus/errs"
+	"github.com/otoru/zeus/hooks"
 	"golang.org/x/exp/slices"
 )
 
@@ -10,6 +12,7 @@ import (
 type Container struct {
 	providers map[reflect.Type]reflect.Value
 	instances map[reflect.Type]reflect.Value
+	hooks     Hooks
 }
 
 // New initializes and returns a new instance of the Container.
@@ -18,48 +21,16 @@ type Container struct {
 //
 //	c := zeus.New()
 func New() *Container {
+	hooks := new(hooks.HooksImpl)
 	providers := make(map[reflect.Type]reflect.Value, 0)
 	instances := make(map[reflect.Type]reflect.Value, 0)
 
 	container := new(Container)
+	container.hooks = hooks
 	container.providers = providers
 	container.instances = instances
 
 	return container
-}
-
-// Provide registers a factory function for dependency resolution.
-// It ensures that the factory is a function, has a valid return type, and checks for duplicate factories.
-// Returns an error if any of these conditions are not met.
-//
-// Example:
-//
-//	c := zeus.New()
-//	c.Provide(func() int { return 42 })
-func (c *Container) Provide(factory interface{}) error {
-	factoryType := reflect.TypeOf(factory)
-
-	if factoryType.Kind() != reflect.Func {
-		return NotAFunctionError{}
-	}
-
-	if numOut := factoryType.NumOut(); numOut < 1 || numOut > 2 {
-		return InvalidFactoryReturnError{NumReturns: numOut}
-	}
-
-	if factoryType.NumOut() == 2 && factoryType.Out(1).Name() != "error" {
-		return UnexpectedReturnTypeError{TypeName: factoryType.Out(1).Name()}
-	}
-
-	serviceType := factoryType.Out(0)
-
-	if _, exists := c.providers[serviceType]; exists {
-		return FactoryAlreadyProvidedError{TypeName: serviceType.Name()}
-	}
-
-	c.providers[serviceType] = reflect.ValueOf(factory)
-
-	return nil
 }
 
 // resolve attempts to resolve a dependency of the given type.
@@ -67,7 +38,7 @@ func (c *Container) Provide(factory interface{}) error {
 // Returns the resolved value and any error encountered during resolution.
 func (c *Container) resolve(t reflect.Type, stack []reflect.Type) (reflect.Value, error) {
 	if slices.Contains(stack, t) {
-		return reflect.Value{}, CyclicDependencyError{TypeName: t.Name()}
+		return reflect.Value{}, errs.CyclicDependencyError{TypeName: t.Name()}
 	}
 
 	if instance, exists := c.instances[t]; exists {
@@ -77,7 +48,7 @@ func (c *Container) resolve(t reflect.Type, stack []reflect.Type) (reflect.Value
 	provider, ok := c.providers[t]
 
 	if !ok {
-		return reflect.Value{}, DependencyResolutionError{TypeName: t.Name()}
+		return reflect.Value{}, errs.DependencyResolutionError{TypeName: t.Name()}
 	}
 
 	providerType := provider.Type()
@@ -85,6 +56,12 @@ func (c *Container) resolve(t reflect.Type, stack []reflect.Type) (reflect.Value
 
 	for i := range dependencies {
 		argType := providerType.In(i)
+
+		if argType.Implements(reflect.TypeOf((*Hooks)(nil)).Elem()) {
+			dependencies[i] = reflect.ValueOf(c.hooks)
+			continue
+		}
+
 		argValue, err := c.resolve(argType, append(stack, t))
 
 		if err != nil {
@@ -105,6 +82,40 @@ func (c *Container) resolve(t reflect.Type, stack []reflect.Type) (reflect.Value
 	return results[0], nil
 }
 
+// Provide registers a factory function for dependency resolution.
+// It ensures that the factory is a function, has a valid return type, and checks for duplicate factories.
+// Returns an error if any of these conditions are not met.
+//
+// Example:
+//
+//	c := zeus.New()
+//	c.Provide(func() int { return 42 })
+func (c *Container) Provide(factory interface{}) error {
+	factoryType := reflect.TypeOf(factory)
+
+	if factoryType.Kind() != reflect.Func {
+		return errs.NotAFunctionError{}
+	}
+
+	if numOut := factoryType.NumOut(); numOut < 1 || numOut > 2 {
+		return errs.InvalidFactoryReturnError{NumReturns: numOut}
+	}
+
+	if factoryType.NumOut() == 2 && factoryType.Out(1).Name() != "error" {
+		return errs.UnexpectedReturnTypeError{TypeName: factoryType.Out(1).Name()}
+	}
+
+	serviceType := factoryType.Out(0)
+
+	if _, exists := c.providers[serviceType]; exists {
+		return errs.FactoryAlreadyProvidedError{TypeName: serviceType.Name()}
+	}
+
+	c.providers[serviceType] = reflect.ValueOf(factory)
+
+	return nil
+}
+
 // Run executes the provided function by resolving and injecting its dependencies.
 // It ensures that the function has a valid signature and that all dependencies can be resolved.
 // Returns an error if the function signature is invalid or if dependencies cannot be resolved.
@@ -117,18 +128,20 @@ func (c *Container) resolve(t reflect.Type, stack []reflect.Type) (reflect.Value
 //	    fmt.Println(i) // Outputs: 42
 //	})
 func (c *Container) Run(fn interface{}) error {
+	errorSet := &errs.ErrorSet{}
+
 	fnType := reflect.TypeOf(fn)
 
 	if fnType.Kind() != reflect.Func {
-		return NotAFunctionError{}
+		return errs.NotAFunctionError{}
 	}
 
 	if numOut := fnType.NumOut(); numOut > 1 {
-		return InvalidFactoryReturnError{NumReturns: numOut}
+		return errs.InvalidFactoryReturnError{NumReturns: numOut}
 	}
 
 	if fnType.NumOut() == 1 && fnType.Out(0).Name() != "error" {
-		return UnexpectedReturnTypeError{TypeName: fnType.Out(0).Name()}
+		return errs.UnexpectedReturnTypeError{TypeName: fnType.Out(0).Name()}
 	}
 
 	dependencies := make([]reflect.Value, fnType.NumIn())
@@ -138,17 +151,30 @@ func (c *Container) Run(fn interface{}) error {
 		argValue, err := c.resolve(argType, nil)
 
 		if err != nil {
-			return err
+			errorSet.Add(err)
+			break
 		}
 
 		dependencies[i] = argValue
 	}
 
+	if !errorSet.IsEmpty() {
+		return errorSet.Result()
+	}
+
+	if err := c.hooks.Start(); err != nil {
+		errorSet.Add(err)
+	}
+
 	results := reflect.ValueOf(fn).Call(dependencies)
 
 	if fnType.NumOut() == 1 && !results[0].IsNil() {
-		return results[0].Interface().(error)
+		errorSet.Add(results[0].Interface().(error))
 	}
 
-	return nil
+	if err := c.hooks.Stop(); err != nil {
+		errorSet.Add(err)
+	}
+
+	return errorSet.Result()
 }
