@@ -9,6 +9,7 @@ import (
 // Container holds the registered factories for dependency resolution.
 type Container struct {
 	providers map[reflect.Type]reflect.Value
+	instances map[reflect.Type]reflect.Value
 }
 
 // New initializes and returns a new instance of the Container.
@@ -18,9 +19,11 @@ type Container struct {
 //	c := zeus.New()
 func New() *Container {
 	providers := make(map[reflect.Type]reflect.Value, 0)
+	instances := make(map[reflect.Type]reflect.Value, 0)
 
 	container := new(Container)
 	container.providers = providers
+	container.instances = instances
 
 	return container
 }
@@ -67,6 +70,10 @@ func (c *Container) resolve(t reflect.Type, stack []reflect.Type) (reflect.Value
 		return reflect.Value{}, CyclicDependencyError{TypeName: t.Name()}
 	}
 
+	if instance, exists := c.instances[t]; exists {
+		return instance, nil
+	}
+
 	provider, ok := c.providers[t]
 
 	if !ok {
@@ -92,6 +99,8 @@ func (c *Container) resolve(t reflect.Type, stack []reflect.Type) (reflect.Value
 	if len(results) == 2 && !results[1].IsNil() {
 		return reflect.Value{}, results[1].Interface().(error)
 	}
+
+	c.instances[t] = results[0]
 
 	return results[0], nil
 }

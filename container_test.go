@@ -106,6 +106,40 @@ func TestContainer(t *testing.T) {
 
 			assert.ErrorContains(t, err, "some error")
 		})
+
+		t.Run("Shared Instance Between Dependencies", func(t *testing.T) {
+			c := New()
+
+			type ServiceC struct{}
+			type ServiceB struct {
+				C *ServiceC
+			}
+			type ServiceA struct {
+				C *ServiceC
+			}
+
+			c.Provide(func() *ServiceC {
+				return &ServiceC{}
+			})
+			c.Provide(func(c *ServiceC) *ServiceA {
+				return &ServiceA{C: c}
+			})
+			c.Provide(func(c *ServiceC) *ServiceB {
+				return &ServiceB{C: c}
+			})
+
+			aVal, _ := c.resolve(reflect.TypeOf(&ServiceA{}), nil)
+			bVal, _ := c.resolve(reflect.TypeOf(&ServiceB{}), nil)
+
+			a, ok := aVal.Interface().(*ServiceA)
+			assert.Equal(t, ok, true)
+
+			b, ok := bVal.Interface().(*ServiceB)
+			assert.Equal(t, ok, true)
+
+			assert.Equal(t, a.C, b.C)
+		})
+
 	})
 
 	t.Run("Run", func(t *testing.T) {
