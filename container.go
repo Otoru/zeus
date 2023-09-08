@@ -6,10 +6,33 @@ import (
 	"golang.org/x/exp/slices"
 )
 
+// Container holds the registered factories for dependency resolution.
 type Container struct {
 	providers map[reflect.Type]reflect.Value
 }
 
+// New initializes and returns a new instance of the Container.
+//
+// Example:
+//
+//	c := zeus.New()
+func New() *Container {
+	providers := make(map[reflect.Type]reflect.Value, 0)
+
+	container := new(Container)
+	container.providers = providers
+
+	return container
+}
+
+// Provide registers a factory function for dependency resolution.
+// It ensures that the factory is a function, has a valid return type, and checks for duplicate factories.
+// Returns an error if any of these conditions are not met.
+//
+// Example:
+//
+//	c := zeus.New()
+//	c.Provide(func() int { return 42 })
 func (c *Container) Provide(factory interface{}) error {
 	factoryType := reflect.TypeOf(factory)
 
@@ -36,6 +59,9 @@ func (c *Container) Provide(factory interface{}) error {
 	return nil
 }
 
+// resolve attempts to resolve a dependency of the given type.
+// It checks for cyclic dependencies and ensures that all dependencies can be resolved.
+// Returns the resolved value and any error encountered during resolution.
 func (c *Container) resolve(t reflect.Type, stack []reflect.Type) (reflect.Value, error) {
 	if slices.Contains(stack, t) {
 		return reflect.Value{}, CyclicDependencyError{TypeName: t.Name()}
@@ -70,6 +96,17 @@ func (c *Container) resolve(t reflect.Type, stack []reflect.Type) (reflect.Value
 	return results[0], nil
 }
 
+// Run executes the provided function by resolving and injecting its dependencies.
+// It ensures that the function has a valid signature and that all dependencies can be resolved.
+// Returns an error if the function signature is invalid or if dependencies cannot be resolved.
+//
+// Example:
+//
+//	c := zeus.New()
+//	c.Provide(func() int { return 42 })
+//	c.Run(func(i int) {
+//	    fmt.Println(i) // Outputs: 42
+//	})
 func (c *Container) Run(fn interface{}) error {
 	fnType := reflect.TypeOf(fn)
 
@@ -105,13 +142,4 @@ func (c *Container) Run(fn interface{}) error {
 	}
 
 	return nil
-}
-
-func New() *Container {
-	providers := make(map[reflect.Type]reflect.Value, 0)
-
-	container := new(Container)
-	container.providers = providers
-
-	return container
 }
