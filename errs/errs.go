@@ -1,6 +1,11 @@
-package zeus
+package errs
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+	"strings"
+	"sync"
+)
 
 // NotAFunctionError indicates that the provided object is not a function.
 type NotAFunctionError struct{}
@@ -58,4 +63,61 @@ type CyclicDependencyError struct {
 // Error returns a string representation of the CyclicDependencyError.
 func (e CyclicDependencyError) Error() string {
 	return fmt.Sprintf("cyclic dependency detected for type %s", e.TypeName)
+}
+
+// ErrorSet is a collection of errors.
+// It can be used to accumulate errors and retrieve them as a single error or a list.
+type ErrorSet struct {
+	mu     sync.Mutex
+	errors []error
+}
+
+// Add appends an error to the error set.
+func (es *ErrorSet) Add(err error) {
+	es.mu.Lock()
+	defer es.mu.Unlock()
+	es.errors = append(es.errors, err)
+}
+
+// Errors returns the list of errors in the error set.
+func (es *ErrorSet) Errors() []error {
+	slices.Reverse(es.errors)
+	return es.errors
+}
+
+// Error implements the error interface.
+// It returns a concatenated string of all error messages in the error set.
+func (es *ErrorSet) Error() string {
+	errMsgs := []string{}
+	for _, err := range es.Errors() {
+		errMsgs = append(errMsgs, err.Error())
+	}
+	return strings.Join(errMsgs, "; ")
+}
+
+// Result returns a single error if there's only one error in the set,
+// the ErrorSet itself if there's more than one error, or nil if there are no errors.
+// Example:
+//
+//	errSet := &ErrorSet{}
+//	errSet.Add(errors.New("First error"))
+//	errSet.Add(errors.New("Second error"))
+//	err := errSet.Result()
+//	fmt.Println(err) // Outputs: "First error; Second error"
+func (es *ErrorSet) Result() error {
+	if len(es.errors) == 1 {
+		return es.errors[0]
+	}
+
+	if len(es.errors) > 1 {
+		return es
+	}
+
+	return nil
+}
+
+// IsEmpty checks if the ErrorSet has no errors.
+// It returns true if the ErrorSet is empty, otherwise false.
+func (me *ErrorSet) IsEmpty() bool {
+	return len(me.errors) == 0
 }
