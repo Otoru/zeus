@@ -294,4 +294,41 @@ func TestContainer(t *testing.T) {
 			assert.ErrorContains(t, err, "stop error")
 		})
 	})
+
+	t.Run("Merge", func(t *testing.T) {
+		t.Run("Merge without conflicts", func(t *testing.T) {
+			containerA := New()
+			containerB := New()
+
+			containerA.Provide(func() string { return "Hello" })
+			containerB.Provide(func() int { return 42 })
+
+			err := containerA.Merge(containerB)
+			assert.NilError(t, err)
+		})
+
+		t.Run("Merge with identical factories", func(t *testing.T) {
+			containerA := New()
+			containerB := New()
+
+			factory := func() string { return "Hello" }
+
+			containerA.Provide(factory)
+			containerB.Provide(factory)
+
+			err := containerA.Merge(containerB)
+			assert.NilError(t, err)
+		})
+
+		t.Run("Merge with conflicting factories", func(t *testing.T) {
+			containerA := New()
+			containerB := New()
+
+			containerA.Provide(func() string { return "Hello" })
+			containerB.Provide(func() string { return "World" })
+
+			err := containerA.Merge(containerB)
+			assert.ErrorIs(t, err, errs.FactoryAlreadyProvidedError{TypeName: "string"})
+		})
+	})
 }
