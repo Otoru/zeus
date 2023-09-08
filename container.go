@@ -2,10 +2,10 @@ package zeus
 
 import (
 	"reflect"
+	"slices"
 
 	"github.com/otoru/zeus/errs"
 	"github.com/otoru/zeus/hooks"
-	"golang.org/x/exp/slices"
 )
 
 // Container holds the registered factories for dependency resolution.
@@ -177,4 +177,34 @@ func (c *Container) Run(fn interface{}) error {
 	}
 
 	return errorSet.Result()
+}
+
+// Merge combines the factories of another container into the current container.
+// If a factory from the other container conflicts with an existing factory in the current container,
+// and they are not identical, a FactoryAlreadyProvidedError is returned.
+//
+// Example:
+//
+//	containerA := New()
+//	containerB := New()
+//
+//	containerA.Provide(func() string { return "Hello" })
+//	containerB.Provide(func() int { return 42 })
+//
+//	err := containerA.Merge(containerB)
+//	if err != nil {
+//	    // Handle merge error
+//	}
+func (c *Container) Merge(other *Container) error {
+	for t, factory := range other.providers {
+		if existingFactory, exists := c.providers[t]; exists {
+			if !reflect.DeepEqual(existingFactory, factory) {
+				return errs.FactoryAlreadyProvidedError{TypeName: t.Name()}
+			}
+			continue
+		}
+
+		c.providers[t] = factory
+	}
+	return nil
 }

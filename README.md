@@ -1,7 +1,9 @@
 # 🌩 Zeus - Simple Dependency Injection Container
 
+[![GoDoc](https://pkg.go.dev/badge/otoru/zeus)](https://pkg.go.dev/github.com/otoru/zeus)
 ![GitHub](https://img.shields.io/github/license/otoru/zeus)
 ![GitHub go.mod Go version (subdirectory of monorepo)](https://img.shields.io/github/go-mod/go-version/otoru/zeus)
+[![Go Report Card](https://goreportcard.com/badge/github.com/otoru/zeus)](https://goreportcard.com/report/github.com/otoru/zeus)
 [![codecov](https://codecov.io/gh/Otoru/zeus/graph/badge.svg?token=Yfkyp5NZsY)](https://codecov.io/gh/Otoru/zeus)
 
 Zeus is a sleek and efficient dependency injection container for Go. Easily register "factories" (functions that create instances of types) and let zeus resolve those dependencies at runtime.
@@ -25,6 +27,35 @@ Zeus detects and reports cycles in your dependencies to prevent runtime errors.
 ### 🪝 Hooks
 
 Zeus supports lifecycle hooks, allowing you to execute functions at the start and end of your application. This is especially useful for setups and teardowns, like establishing a database connection or gracefully shutting down services.
+
+### 🔄 Merging Containers
+
+Zeus now supports merging two containers together using the Merge method. This is especially useful when you have modularized your application and want to combine dependencies from different modules.
+
+#### How to Use
+
+1. Create two separate containers.
+2. Add factories to both containers.
+3. Use the Merge method to combine the factories of one container into another.
+
+#### Example
+
+```go
+containerA := zeus.New()
+containerB := zeus.New()
+
+containerA.Provide(func() string { return "Hello" })
+containerB.Provide(func() int { return 42 })
+
+err := containerA.Merge(containerB)
+if err != nil {
+    // Handle merge error
+}
+```
+
+#### Note
+
+If a factory from the merging container conflicts with an existing factory in the main container, and they are not identical, a FactoryAlreadyProvidedError will be returned. This ensures that you don't accidentally overwrite existing dependencies.
 
 ## 🚀 Getting Started
 
