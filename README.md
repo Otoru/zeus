@@ -28,35 +28,6 @@ Zeus detects and reports cycles in your dependencies to prevent runtime errors.
 
 Zeus supports lifecycle hooks, allowing you to execute functions at the start and end of your application. This is especially useful for setups and teardowns, like establishing a database connection or gracefully shutting down services.
 
-### 🔄 Merging Containers
-
-Zeus now supports merging two containers together using the Merge method. This is especially useful when you have modularized your application and want to combine dependencies from different modules.
-
-#### How to Use
-
-1. Create two separate containers.
-2. Add factories to both containers.
-3. Use the Merge method to combine the factories of one container into another.
-
-#### Example
-
-```go
-containerA := zeus.New()
-containerB := zeus.New()
-
-containerA.Provide(func() string { return "Hello" })
-containerB.Provide(func() int { return 42 })
-
-err := containerA.Merge(containerB)
-if err != nil {
-    // Handle merge error
-}
-```
-
-#### Note
-
-If a factory from the merging container conflicts with an existing factory in the main container, and they are not identical, a FactoryAlreadyProvidedError will be returned. This ensures that you don't accidentally overwrite existing dependencies.
-
 ## 🚀 Getting Started
 
 ### Installation
@@ -125,6 +96,35 @@ c.Run(func(s *Service) {
 // Shutting down...
 
 ```
+
+### Merging Containers
+
+Zeus now supports merging two containers together using the Merge method. This is especially useful when you have modularized your application and want to combine dependencies from different modules.
+
+#### How to Use
+
+1. Create two separate containers.
+2. Add factories to both containers.
+3. Use the Merge method to combine the factories of one container into another.
+
+#### Example
+
+```go
+containerA := zeus.New()
+containerB := zeus.New()
+
+containerA.Provide(func() string { return "Hello" })
+containerB.Provide(func() int { return 42 })
+
+err := containerA.Merge(containerB)
+if err != nil {
+    // Handle merge error
+}
+```
+
+#### Note
+
+If a factory from the merging container conflicts with an existing factory in the main container, and they are not identical, a `FactoryAlreadyProvidedError` will be returned. This ensures that you don't accidentally overwrite existing dependencies.
 
 ### Error Handling
 
