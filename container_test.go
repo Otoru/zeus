@@ -251,10 +251,12 @@ func TestContainer(t *testing.T) {
 					started = true
 					return nil
 				})
+
 				h.OnStop(func() error {
 					stopped = true
 					return nil
 				})
+
 				return 42
 			})
 
@@ -272,6 +274,7 @@ func TestContainer(t *testing.T) {
 				h.OnStart(func() error {
 					return errors.New("start error")
 				})
+
 				return 42
 			})
 
