@@ -3,6 +3,7 @@ package zeus
 import (
 	"reflect"
 	"slices"
+	"sync"
 
 	"github.com/otoru/zeus/errs"
 	"github.com/otoru/zeus/hooks"
@@ -12,6 +13,7 @@ import (
 type Container struct {
 	providers map[reflect.Type]reflect.Value
 	instances map[reflect.Type]reflect.Value
+	mu        sync.RWMutex
 	hooks     Hooks
 }
 
@@ -21,9 +23,9 @@ type Container struct {
 //
 //	c := zeus.New()
 func New() *Container {
-	hooks := new(hooks.HooksImpl)
-	providers := make(map[reflect.Type]reflect.Value, 0)
-	instances := make(map[reflect.Type]reflect.Value, 0)
+	hooks := new(hooks.LifecycleHooks)
+	providers := make(map[reflect.Type]reflect.Value)
+	instances := make(map[reflect.Type]reflect.Value)
 
 	container := new(Container)
 	container.hooks = hooks
@@ -41,13 +43,16 @@ func (c *Container) resolve(t reflect.Type, stack []reflect.Type) (reflect.Value
 		return reflect.Value{}, errs.CyclicDependencyError{TypeName: t.Name()}
 	}
 
-	if instance, exists := c.instances[t]; exists {
+	c.mu.RLock()
+	instance, hasInstance := c.instances[t]
+	provider, hasProvider := c.providers[t]
+	c.mu.RUnlock()
+
+	if hasInstance {
 		return instance, nil
 	}
 
-	provider, ok := c.providers[t]
-
-	if !ok {
+	if !hasProvider {
 		return reflect.Value{}, errs.DependencyResolutionError{TypeName: t.Name()}
 	}
 
@@ -90,28 +95,36 @@ func (c *Container) resolve(t reflect.Type, stack []reflect.Type) (reflect.Value
 //
 //	c := zeus.New()
 //	c.Provide(func() int { return 42 })
-func (c *Container) Provide(factory interface{}) error {
-	factoryType := reflect.TypeOf(factory)
+func (c *Container) Provide(factories ...interface{}) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if factoryType.Kind() != reflect.Func {
-		return errs.NotAFunctionError{}
+	for _, factory := range factories {
+		factoryType := reflect.TypeOf(factory)
+
+		if factoryType.Kind() != reflect.Func {
+			return errs.NotAFunctionError{}
+		}
+
+		if numOut := factoryType.NumOut(); numOut < 1 || numOut > 2 {
+			return errs.InvalidFactoryReturnError{NumReturns: numOut}
+		}
+
+		if factoryType.NumOut() == 2 {
+			errorType := reflect.TypeOf((*error)(nil)).Elem()
+			if !factoryType.Out(1).Implements(errorType) {
+				return errs.UnexpectedReturnTypeError{TypeName: factoryType.Out(1).Name()}
+			}
+		}
+
+		serviceType := factoryType.Out(0)
+
+		if _, exists := c.providers[serviceType]; exists {
+			return errs.FactoryAlreadyProvidedError{TypeName: serviceType.Name()}
+		}
+
+		c.providers[serviceType] = reflect.ValueOf(factory)
 	}
-
-	if numOut := factoryType.NumOut(); numOut < 1 || numOut > 2 {
-		return errs.InvalidFactoryReturnError{NumReturns: numOut}
-	}
-
-	if factoryType.NumOut() == 2 && factoryType.Out(1).Name() != "error" {
-		return errs.UnexpectedReturnTypeError{TypeName: factoryType.Out(1).Name()}
-	}
-
-	serviceType := factoryType.Out(0)
-
-	if _, exists := c.providers[serviceType]; exists {
-		return errs.FactoryAlreadyProvidedError{TypeName: serviceType.Name()}
-	}
-
-	c.providers[serviceType] = reflect.ValueOf(factory)
 
 	return nil
 }
@@ -166,6 +179,10 @@ func (c *Container) Run(fn interface{}) error {
 		errorSet.Add(err)
 	}
 
+	if !errorSet.IsEmpty() {
+		return errorSet.Result()
+	}
+
 	results := reflect.ValueOf(fn).Call(dependencies)
 
 	if fnType.NumOut() == 1 && !results[0].IsNil() {
@@ -196,9 +213,12 @@ func (c *Container) Run(fn interface{}) error {
 //	    // Handle merge error
 //	}
 func (c *Container) Merge(other *Container) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	for t, factory := range other.providers {
 		if existingFactory, exists := c.providers[t]; exists {
-			if !reflect.DeepEqual(existingFactory, factory) {
+			if existingFactory.Pointer() != factory.Pointer() {
 				return errs.FactoryAlreadyProvidedError{TypeName: t.Name()}
 			}
 			continue

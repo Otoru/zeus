@@ -1,10 +1,6 @@
 package hooks
 
-import (
-	"sync"
-
-	"github.com/otoru/zeus/errs"
-)
+import "sync"
 
 // Hooks defines an interface for lifecycle events.
 // It provides methods to register functions that should be executed
@@ -16,10 +12,11 @@ type Hooks interface {
 	Stop() error
 }
 
-// HooksImpl is the default implementation of the Hooks interface.
-type HooksImpl struct {
+// LifecycleHooks is the default implementation of the Hooks interface.
+type LifecycleHooks struct {
 	onStart []func() error
 	onStop  []func() error
+	mu      sync.Mutex
 }
 
 // OnStart adds a function to the list of functions to be executed at the start.
@@ -29,7 +26,9 @@ type HooksImpl struct {
 //	   fmt.Println("Starting...")
 //	   return nil
 //	})
-func (h *HooksImpl) OnStart(fn func() error) {
+func (h *LifecycleHooks) OnStart(fn func() error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.onStart = append(h.onStart, fn)
 }
 
@@ -40,14 +39,16 @@ func (h *HooksImpl) OnStart(fn func() error) {
 //	   fmt.Println("Stopping...")
 //	   return nil
 //	})
-func (h *HooksImpl) OnStop(fn func() error) {
+func (h *LifecycleHooks) OnStop(fn func() error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	h.onStop = append(h.onStop, fn)
 }
 
 // Start executes all the registered OnStart hooks.
 // It returns the first error encountered or nil if all hooks execute successfully.
 // This method is internally used by the Container's Run function.
-func (h *HooksImpl) Start() error {
+func (h *LifecycleHooks) Start() error {
 	for _, hook := range h.onStart {
 		if err := hook(); err != nil {
 			return err
@@ -59,20 +60,12 @@ func (h *HooksImpl) Start() error {
 // Stop executes all the registered OnStop hooks.
 // It returns the first error encountered or nil if all hooks execute successfully.
 // This method is internally used by the Container's Run function.
-func (h *HooksImpl) Stop() error {
-	var wg sync.WaitGroup
-	errorSet := &errs.ErrorSet{}
-
+func (h *LifecycleHooks) Stop() error {
 	for _, hook := range h.onStop {
-		wg.Add(1)
-		go func(hook func() error) {
-			defer wg.Done()
-			if err := hook(); err != nil {
-				errorSet.Add(err)
-			}
-		}(hook)
+		if err := hook(); err != nil {
+			return err
+		}
 	}
 
-	wg.Wait()
-	return errorSet.Result()
+	return nil
 }
